@@ -1,0 +1,22 @@
+{
+    "name": "Talk2Me - Écoute Anonyme",
+    "short_name": "Talk2Me",
+    "description": "Application d'écoute anonyme et gratuite. Parlez à des bénévoles, 100% confidentiel.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#6C5CE7",
+    "theme_color": "#6C5CE7",
+    "orientation": "portrait-primary",
+    "icons": [
+        {
+            "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>",
+            "sizes": "100x100",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": ["health", "social", "medical"],
+    "lang": "fr-FR",
+    "scope": "/",
+    "id": "talk2me-app"
+}
