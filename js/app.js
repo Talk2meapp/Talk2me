@@ -5,7 +5,7 @@
 const APP_NAME = 'Talk2Me';
 const SERVER_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:3000' 
-    : 'https://talk2me.app';
+    : 'https://talk2me.onrender.com';
 
 let socket = null;
 let currentUser = {
@@ -14,7 +14,9 @@ let currentUser = {
     roomId: null
 };
 
-// Service Worker pour PWA
+// ============================================
+// SERVICE WORKER (PWA)
+// ============================================
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
@@ -27,12 +29,149 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// Notification d'installation PWA
+// ============================================
+// DEMANDE DE PERMISSION DE NOTIFICATION
+// ============================================
+function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+                console.log('✅ Notifications activées');
+            }
+        });
+    }
+}
+
+// ============================================
+// NOTIFICATION NAVIGATEUR (POP-UP)
+// ============================================
+function showBrowserNotification(personName) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification('🔔 Talk2Me - Nouvelle demande', {
+            body: personName + ' a besoin de parler. Rejoignez la conversation !',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>',
+            tag: 'talk2me-new-request',
+            requireInteraction: true,
+            vibrate: [200, 100, 200]
+        });
+        
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+    }
+}
+
+// ============================================
+// NOTIFICATION SONORE
+// ============================================
+function playNotificationSound() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Son 1 : Ding
+        const oscillator1 = audioCtx.createOscillator();
+        const gainNode1 = audioCtx.createGain();
+        oscillator1.connect(gainNode1);
+        gainNode1.connect(audioCtx.destination);
+        oscillator1.frequency.value = 800;
+        oscillator1.type = 'sine';
+        gainNode1.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gainNode1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        oscillator1.start(audioCtx.currentTime);
+        oscillator1.stop(audioCtx.currentTime + 0.3);
+        
+        // Son 2 : Dong
+        setTimeout(() => {
+            const oscillator2 = audioCtx.createOscillator();
+            const gainNode2 = audioCtx.createGain();
+            oscillator2.connect(gainNode2);
+            gainNode2.connect(audioCtx.destination);
+            oscillator2.frequency.value = 600;
+            oscillator2.type = 'sine';
+            gainNode2.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            oscillator2.start(audioCtx.currentTime);
+            oscillator2.stop(audioCtx.currentTime + 0.5);
+        }, 300);
+    } catch (e) {
+        console.log('Son non supporté');
+    }
+}
+
+// ============================================
+// SON LÉGER POUR MESSAGE REÇU
+// ============================================
+function playMessageSound() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.frequency.value = 500;
+        oscillator.type = 'sine';
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.1);
+    } catch (e) {
+        // Silencieux
+    }
+}
+
+// ============================================
+// NOTIFICATION VISUELLE DANS LA PAGE
+// ============================================
+function showInAppNotification(message) {
+    const notif = document.createElement('div');
+    notif.className = 'in-app-notification';
+    notif.innerHTML = '🔔 ' + message;
+    notif.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: var(--gradient, linear-gradient(135deg, #6C5CE7, #00B894));
+        color: white;
+        padding: 15px 25px;
+        border-radius: 10px;
+        font-weight: 600;
+        z-index: 9999;
+        animation: slideDown 0.5s ease, fadeOut 0.5s ease 4s forwards;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        cursor: pointer;
+    `;
+    notif.onclick = () => notif.remove();
+    document.body.appendChild(notif);
+    
+    setTimeout(() => {
+        if (notif.parentNode) notif.remove();
+    }, 5000);
+}
+
+// ============================================
+// ANIMATIONS CSS POUR NOTIFICATIONS
+// ============================================
+const notificationStyles = document.createElement('style');
+notificationStyles.textContent = `
+    @keyframes slideDown {
+        from { transform: translateX(100px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes fadeOut {
+        from { opacity: 1; }
+        to { opacity: 0; }
+    }
+`;
+document.head.appendChild(notificationStyles);
+
+// ============================================
+// INSTALLATION PWA
+// ============================================
 window.addEventListener('appinstalled', () => {
     console.log('✅ Talk2Me installée !');
 });
 
-// Bouton d'installation
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
@@ -45,15 +184,21 @@ window.addEventListener('beforeinstallprompt', (e) => {
         if (deferredPrompt) {
             deferredPrompt.prompt();
             const { outcome } = await deferredPrompt.userChoice;
-            console.log(`Installation: ${outcome}`);
+            console.log('Installation: ' + outcome);
             deferredPrompt = null;
             installBtn.remove();
         }
     };
-    document.querySelector('.hero')?.appendChild(installBtn);
+    
+    const heroSection = document.querySelector('.hero');
+    if (heroSection) {
+        heroSection.appendChild(installBtn);
+    }
 });
 
-// Navigation
+// ============================================
+// NAVIGATION
+// ============================================
 function showSection(sectionId) {
     document.querySelectorAll('.section').forEach(section => {
         section.classList.remove('active');
@@ -65,12 +210,15 @@ function showSection(sectionId) {
         section.scrollIntoView({ behavior: 'smooth', block: 'start' });
         
         if (sectionId === 'chat') {
+            requestNotificationPermission();
             initializeChat();
         }
     }
 }
 
-// Chat
+// ============================================
+// GESTION DU CHAT
+// ============================================
 function initializeChat() {
     if (!currentUser.pseudo) {
         currentUser.pseudo = 'Anonyme' + Math.floor(Math.random() * 1000);
@@ -85,7 +233,7 @@ function initializeChat() {
         });
         
         socket.on('connect', () => {
-            console.log(`✅ Connecté à ${APP_NAME}`);
+            console.log('✅ Connecté à ' + APP_NAME);
             socket.emit('joinQueue', currentUser);
         });
         
@@ -99,10 +247,18 @@ function initializeChat() {
         socket.on('matchFound', (data) => {
             currentUser.roomId = data.roomId;
             startChat(data.partnerPseudo);
+            
+            // 🔔 NOTIFICATIONS POUR LE BÉNÉVOLE
+            if (currentUser.type === 'volunteer') {
+                playNotificationSound();
+                showBrowserNotification(data.partnerPseudo);
+                showInAppNotification(data.partnerPseudo + ' a besoin de parler !');
+            }
         });
         
         socket.on('message', (message) => {
             displayMessage(message, 'received');
+            playMessageSound();
         });
         
         socket.on('partnerDisconnected', () => {
@@ -130,7 +286,8 @@ function startChat(partnerPseudo) {
     document.getElementById('chatBox').style.display = 'flex';
     document.getElementById('messages').innerHTML = '';
     
-    displaySystemMessage(`✅ Connecté avec ${partnerPseudo}. Parlez librement et en toute confidentialité.`);
+    displaySystemMessage('✅ Connecté avec ' + partnerPseudo + '. Parlez librement et en toute confidentialité.');
+    displaySystemMessage('💡 Rappel : cet espace est bienveillant et sans jugement.');
 }
 
 function resetChat() {
@@ -168,13 +325,17 @@ function displayMessage(message, type) {
     if (!messagesDiv) return;
     
     const messageElement = document.createElement('div');
-    messageElement.className = `message ${type}`;
+    messageElement.className = 'message ' + type;
     
     if (type === 'system') {
-        messageElement.innerHTML = `<small>${message}</small>`;
+        messageElement.innerHTML = '<small>' + message + '</small>';
     } else {
+        const sender = message.sender || 'Anonyme';
+        const time = message.timestamp 
+            ? new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) 
+            : '';
         messageElement.innerHTML = `
-            <small>${message.sender || 'Anonyme'}</small>
+            <small>${sender} ${time ? '· ' + time : ''}</small>
             <p>${escapeHtml(message.text || message)}</p>
         `;
     }
@@ -193,7 +354,9 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Inscription bénévole
+// ============================================
+// INSCRIPTION BÉNÉVOLE
+// ============================================
 function registerVolunteer(event) {
     event.preventDefault();
     
@@ -209,7 +372,7 @@ function registerVolunteer(event) {
     
     const volunteerData = { pseudo, email, availability, motivation, type: 'volunteer' };
     
-    fetch(`${SERVER_URL}/api/register-volunteer`, {
+    fetch(SERVER_URL + '/api/register-volunteer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(volunteerData)
@@ -218,33 +381,61 @@ function registerVolunteer(event) {
     .then(data => {
         if (data.success) {
             currentUser = volunteerData;
-            alert(`🎉 Merci ${pseudo} ! Bienvenue sur ${APP_NAME}.`);
+            alert('🎉 Merci ' + pseudo + ' ! Bienvenue sur ' + APP_NAME + '.');
+            requestNotificationPermission();
             showSection('chat');
         }
     })
     .catch(() => {
         currentUser = volunteerData;
-        alert(`✅ Bienvenue sur ${APP_NAME}, ${pseudo} !`);
+        alert('✅ Bienvenue sur ' + APP_NAME + ', ' + pseudo + ' !');
         showSection('chat');
     });
     
     return false;
 }
 
-// Initialisation
+// ============================================
+// PARTAGE SUR RÉSEAUX SOCIAUX
+// ============================================
+function shareOnFacebook() {
+    window.open('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(window.location.href));
+}
+
+function shareOnTwitter() {
+    const text = "Découvrez Talk2Me, une application gratuite d'écoute anonyme 💚";
+    window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(window.location.href));
+}
+
+function shareOnWhatsApp() {
+    const text = "Talk2Me - Application d'écoute anonyme et gratuite 💚 " + window.location.href;
+    window.open('https://wa.me/?text=' + encodeURIComponent(text));
+}
+
+// ============================================
+// INITIALISATION
+// ============================================
 document.addEventListener('DOMContentLoaded', () => {
-    console.log(`🚀 ${APP_NAME} est prêt !`);
-    document.title = `${APP_NAME} - Parlez, nous écoutons`;
+    console.log('🚀 ' + APP_NAME + ' est prêt !');
+    document.title = APP_NAME + ' - Parlez, nous écoutons';
     showSection('home');
     
     const container = document.querySelector('.container');
-    container.style.opacity = '0';
-    setTimeout(() => {
-        container.style.transition = 'opacity 0.6s ease';
-        container.style.opacity = '1';
-    }, 100);
+    if (container) {
+        container.style.opacity = '0';
+        setTimeout(() => {
+            container.style.transition = 'opacity 0.6s ease';
+            container.style.opacity = '1';
+        }, 100);
+    }
 });
 
 window.addEventListener('beforeunload', () => {
-    if (socket?.connected) socket.disconnect();
+    if (socket && socket.connected) {
+        socket.disconnect();
+    }
+});
+
+window.addEventListener('error', (event) => {
+    console.error('Erreur:', event.error);
 });
