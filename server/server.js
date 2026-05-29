@@ -3,7 +3,7 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
     cors: {
-        origin: ["http://localhost:3000", "http://localhost:5500", "https://talk2me.onrender.com"],
+        origin: "*",
         methods: ["GET", "POST"]
     }
 });
@@ -11,22 +11,19 @@ const io = require('socket.io')(http, {
 const APP_NAME = 'Talk2Me';
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(express.json());
 app.use(express.static(__dirname + '/..'));
 app.use(require('cors')());
 
-// Stockage en mémoire
-const waitingQueue = [];
-const activeChats = new Map();
-const volunteers = new Set();
+// Files d'attente
+let waitingUsers = [];
+let availableVolunteers = [];
+let activeChats = new Map();
 
-// Route principale
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/../index.html');
 });
 
-// Route d'inscription bénévole
 app.post('/api/register-volunteer', (req, res) => {
     const { pseudo, email, availability, motivation } = req.body;
     
@@ -34,66 +31,65 @@ app.post('/api/register-volunteer', (req, res) => {
         return res.status(400).json({ error: 'Pseudo et email requis' });
     }
     
-    const volunteerId = Date.now().toString();
-    volunteers.add({
-        id: volunteerId,
-        pseudo,
-        email,
-        availability,
-        motivation,
-        status: 'available',
-        joinedAt: new Date()
-    });
-    
-    console.log(`✅ Nouveau bénévole Talk2Me : ${pseudo}`);
+    console.log('✅ Nouveau bénévole: ' + pseudo);
     
     res.json({ 
         success: true, 
-        message: `Bienvenue sur ${APP_NAME} !`,
-        volunteerId
+        message: 'Bienvenue sur ' + APP_NAME + ' !'
     });
 });
 
-// Route statut
 app.get('/api/status', (req, res) => {
     res.json({
         app: APP_NAME,
-        domain: 'talk2me.app',
-        onlineVolunteers: volunteers.size,
-        waitingUsers: waitingQueue.length,
-        activeChats: activeChats.size,
-        uptime: process.uptime()
+        onlineVolunteers: availableVolunteers.length,
+        waitingUsers: waitingUsers.length,
+        activeChats: activeChats.size
     });
 });
 
 // WebSocket
 io.on('connection', (socket) => {
-    console.log(`🔗 Talk2Me - Nouvelle connexion : ${socket.id}`);
-    io.emit('onlineCount', volunteers.size);
+    console.log('🔗 Connexion: ' + socket.id);
+    io.emit('onlineCount', availableVolunteers.length);
     
     socket.on('joinQueue', (userData) => {
         socket.userData = userData;
         
         if (userData.type === 'volunteer') {
-            volunteers.add({ ...userData, socketId: socket.id });
-            matchUsers(socket);
+            // Ajouter le bénévole à la liste
+            availableVolunteers.push({
+                socketId: socket.id,
+                pseudo: userData.pseudo,
+                status: 'available'
+            });
+            console.log('👂 Bénévole en ligne: ' + userData.pseudo);
+            
+            // Chercher un utilisateur en attente
+            matchUsers();
         } else {
-            waitingQueue.push({ ...userData, socketId: socket.id });
-            socket.emit('queuePosition', waitingQueue.length);
-            matchUsers(socket);
+            // Ajouter l'utilisateur à la file d'attente
+            waitingUsers.push({
+                socketId: socket.id,
+                pseudo: userData.pseudo
+            });
+            console.log('🙋 Utilisateur en attente: ' + userData.pseudo);
+            
+            // Informer de la position
+            socket.emit('queuePosition', waitingUsers.length);
+            
+            // Chercher un bénévole
+            matchUsers();
         }
         
-        io.emit('onlineCount', volunteers.size);
+        io.emit('onlineCount', availableVolunteers.length);
     });
     
     socket.on('sendMessage', (messageData) => {
-        const chat = activeChats.get(socket.id) || 
-                    Array.from(activeChats.entries())
-                         .find(([key, value]) => value.partnerId === socket.id);
+        const chat = activeChats.get(socket.id);
         
         if (chat) {
-            const partnerId = chat[1].partnerId;
-            io.to(partnerId).emit('message', {
+            io.to(chat.partnerId).emit('message', {
                 text: messageData.text,
                 sender: socket.userData?.pseudo || 'Anonyme',
                 timestamp: new Date().toISOString()
@@ -102,65 +98,59 @@ io.on('connection', (socket) => {
     });
     
     socket.on('disconnect', () => {
-        console.log(`❌ Déconnexion : ${socket.id}`);
+        console.log('❌ Déconnexion: ' + socket.id);
         
-        const queueIndex = waitingQueue.findIndex(u => u.socketId === socket.id);
-        if (queueIndex !== -1) waitingQueue.splice(queueIndex, 1);
+        // Nettoyer les files
+        waitingUsers = waitingUsers.filter(u => u.socketId !== socket.id);
+        availableVolunteers = availableVolunteers.filter(v => v.socketId !== socket.id);
         
-        volunteers.forEach(v => {
-            if (v.socketId === socket.id) volunteers.delete(v);
-        });
-        
+        // Si le socket était dans un chat actif
         if (activeChats.has(socket.id)) {
             const chat = activeChats.get(socket.id);
             io.to(chat.partnerId).emit('partnerDisconnected');
             activeChats.delete(socket.id);
+            activeChats.delete(chat.partnerId);
         }
         
-        io.emit('onlineCount', volunteers.size);
+        io.emit('onlineCount', availableVolunteers.length);
     });
 });
 
-// Matching des utilisateurs
-function matchUsers(socket) {
-    if (socket.userData?.type === 'volunteer' && waitingQueue.length > 0) {
-        const user = waitingQueue.shift();
-        const roomId = `room_${Date.now()}`;
+function matchUsers() {
+    // Tant qu'il y a des utilisateurs ET des bénévoles disponibles
+    while (waitingUsers.length > 0 && availableVolunteers.length > 0) {
+        const user = waitingUsers.shift();
+        const volunteer = availableVolunteers.shift();
         
-        activeChats.set(socket.id, { partnerId: user.socketId, roomId });
-        activeChats.set(user.socketId, { partnerId: socket.id, roomId });
+        const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         
-        socket.emit('matchFound', { roomId, partnerPseudo: user.pseudo });
-        io.to(user.socketId).emit('matchFound', { roomId, partnerPseudo: socket.userData.pseudo });
-        
-        volunteers.forEach(v => {
-            if (v.socketId === socket.id) v.status = 'busy';
+        // Créer le chat
+        activeChats.set(user.socketId, {
+            partnerId: volunteer.socketId,
+            roomId: roomId
         });
-    } else if (socket.userData?.type !== 'volunteer') {
-        let volunteerFound = false;
-        volunteers.forEach(v => {
-            if (v.status === 'available' && !volunteerFound && v.socketId !== socket.id) {
-                const roomId = `room_${Date.now()}`;
-                
-                activeChats.set(v.socketId, { partnerId: socket.id, roomId });
-                activeChats.set(socket.id, { partnerId: v.socketId, roomId });
-                
-                io.to(v.socketId).emit('matchFound', { roomId, partnerPseudo: socket.userData.pseudo });
-                socket.emit('matchFound', { roomId, partnerPseudo: v.pseudo });
-                
-                v.status = 'busy';
-                volunteerFound = true;
-                
-                const index = waitingQueue.findIndex(u => u.socketId === socket.id);
-                if (index !== -1) waitingQueue.splice(index, 1);
-            }
+        activeChats.set(volunteer.socketId, {
+            partnerId: user.socketId,
+            roomId: roomId
         });
+        
+        // Informer les deux
+        io.to(user.socketId).emit('matchFound', {
+            roomId: roomId,
+            partnerPseudo: volunteer.pseudo
+        });
+        
+        io.to(volunteer.socketId).emit('matchFound', {
+            roomId: roomId,
+            partnerPseudo: user.pseudo
+        });
+        
+        console.log('✅ Match: ' + user.pseudo + ' ↔ ' + volunteer.pseudo);
     }
+    
+    io.emit('onlineCount', availableVolunteers.length);
 }
 
-// Démarrage du serveur
 http.listen(PORT, () => {
-    console.log(`🚀 ${APP_NAME} est en ligne sur le port ${PORT}`);
-    console.log(`🌐 URL locale : http://localhost:${PORT}`);
-    console.log(`📊 Statut : http://localhost:${PORT}/api/status`);
+    console.log('🚀 ' + APP_NAME + ' en ligne sur le port ' + PORT);
 });
