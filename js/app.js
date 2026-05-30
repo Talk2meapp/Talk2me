@@ -1,5 +1,6 @@
 // ============================================
-// TALK2ME - Application d'écoute anonyme
+// TALK2ME v2 - Écoute Anonyme
+// Comme Be My Eyes pour la santé mentale
 // ============================================
 
 const APP_NAME = 'Talk2Me';
@@ -7,208 +8,192 @@ const SERVER_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:3000' 
     : 'https://talk2me.onrender.com';
 
+// Numéros d'urgence Côte d'Ivoire
+const EMERGENCY_NUMBERS = [
+    { name: 'Police Secours', number: '170' },
+    { name: 'Pompiers', number: '180' },
+    { name: 'SAMU', number: '144' },
+    { name: 'Protection Enfance', number: '116' },
+    { name: 'Numéro Unique', number: '143' }
+];
+
 let socket = null;
 let currentUser = {
     type: null,
     pseudo: null,
     roomId: null
 };
+let incomingCallData = null;
+let callTimerInterval = null;
+let callSeconds = 0;
 
 // ============================================
-// SERVICE WORKER (PWA)
-// ============================================
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-            .then(registration => {
-                console.log('✅ Talk2Me SW enregistré');
-            })
-            .catch(err => {
-                console.log('❌ SW échec:', err);
-            });
-    });
-}
-
-// ============================================
-// DEMANDE DE PERMISSION DE NOTIFICATION
+// DEMANDE DE PERMISSION NOTIFICATIONS
 // ============================================
 function requestNotificationPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted') {
-                console.log('✅ Notifications activées');
-            }
-        });
+        Notification.requestPermission();
     }
 }
 
 // ============================================
-// NOTIFICATION NAVIGATEUR (POP-UP)
+// SONNERIE D'APPEL ENTRANT
 // ============================================
-function showBrowserNotification(personName) {
-    if ('Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification('🔔 Talk2Me - Nouvelle demande', {
-            body: personName + ' a besoin de parler. Rejoignez la conversation !',
-            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>',
-            tag: 'talk2me-new-request',
-            requireInteraction: true,
-            vibrate: [200, 100, 200]
-        });
-        
-        notification.onclick = () => {
-            window.focus();
-            notification.close();
-        };
-    }
-}
-
-// ============================================
-// NOTIFICATION SONORE
-// ============================================
-function playNotificationSound() {
+function playRingtone() {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
-        // Son 1 : Ding
-        const oscillator1 = audioCtx.createOscillator();
-        const gainNode1 = audioCtx.createGain();
-        oscillator1.connect(gainNode1);
-        gainNode1.connect(audioCtx.destination);
-        oscillator1.frequency.value = 800;
-        oscillator1.type = 'sine';
-        gainNode1.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gainNode1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-        oscillator1.start(audioCtx.currentTime);
-        oscillator1.stop(audioCtx.currentTime + 0.3);
-        
-        // Son 2 : Dong
-        setTimeout(() => {
-            const oscillator2 = audioCtx.createOscillator();
-            const gainNode2 = audioCtx.createGain();
-            oscillator2.connect(gainNode2);
-            gainNode2.connect(audioCtx.destination);
-            oscillator2.frequency.value = 600;
-            oscillator2.type = 'sine';
-            gainNode2.gain.setValueAtTime(0.3, audioCtx.currentTime);
-            gainNode2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-            oscillator2.start(audioCtx.currentTime);
-            oscillator2.stop(audioCtx.currentTime + 0.5);
-        }, 300);
-    } catch (e) {
-        console.log('Son non supporté');
-    }
-}
-
-// ============================================
-// SON LÉGER POUR MESSAGE REÇU
-// ============================================
-function playMessageSound() {
-    try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.frequency.value = 500;
-        oscillator.type = 'sine';
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        oscillator.start(audioCtx.currentTime);
-        oscillator.stop(audioCtx.currentTime + 0.1);
-    } catch (e) {
-        // Silencieux
-    }
-}
-
-// ============================================
-// NOTIFICATION VISUELLE DANS LA PAGE
-// ============================================
-function showInAppNotification(message) {
-    const notif = document.createElement('div');
-    notif.className = 'in-app-notification';
-    notif.innerHTML = '🔔 ' + message;
-    notif.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: var(--gradient, linear-gradient(135deg, #6C5CE7, #00B894));
-        color: white;
-        padding: 15px 25px;
-        border-radius: 10px;
-        font-weight: 600;
-        z-index: 9999;
-        animation: slideDown 0.5s ease, fadeOut 0.5s ease 4s forwards;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        cursor: pointer;
-    `;
-    notif.onclick = () => notif.remove();
-    document.body.appendChild(notif);
-    
-    setTimeout(() => {
-        if (notif.parentNode) notif.remove();
-    }, 5000);
-}
-
-// ============================================
-// ANIMATIONS CSS POUR NOTIFICATIONS
-// ============================================
-const notificationStyles = document.createElement('style');
-notificationStyles.textContent = `
-    @keyframes slideDown {
-        from { transform: translateX(100px); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes fadeOut {
-        from { opacity: 1; }
-        to { opacity: 0; }
-    }
-`;
-document.head.appendChild(notificationStyles);
-
-// ============================================
-// INSTALLATION PWA
-// ============================================
-window.addEventListener('appinstalled', () => {
-    console.log('✅ Talk2Me installée !');
-});
-
-let deferredPrompt;
-window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    
-    const installBtn = document.createElement('button');
-    installBtn.textContent = '📱 Installer Talk2Me';
-    installBtn.className = 'install-btn';
-    installBtn.onclick = async () => {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            console.log('Installation: ' + outcome);
-            deferredPrompt = null;
-            installBtn.remove();
+        function beep(freq, duration, delay) {
+            setTimeout(() => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.frequency.value = freq;
+                osc.type = 'sine';
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + duration);
+            }, delay);
         }
-    };
-    
-    const heroSection = document.querySelector('.hero');
-    if (heroSection) {
-        heroSection.appendChild(installBtn);
+        
+        // Sonnerie style téléphone
+        for (let i = 0; i < 6; i++) {
+            beep(800, 0.2, i * 400);
+            beep(1000, 0.2, i * 400 + 200);
+        }
+    } catch (e) {}
+}
+
+// ============================================
+// VIBRATION
+// ============================================
+function vibrate(pattern) {
+    if (navigator.vibrate) {
+        navigator.vibrate(pattern);
     }
+}
+
+// ============================================
+// NOTIFICATION NAVIGATEUR
+// ============================================
+function showBrowserNotification(title, body) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, {
+            body: body,
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>',
+            tag: 'talk2me-call',
+            requireInteraction: true,
+            vibrate: [200, 100, 200, 100, 200]
+        });
+    }
+}
+
+// ============================================
+// APPEL ENTRANT (POUR LE BÉNÉVOLE)
+// ============================================
+function showIncomingCall(partnerPseudo) {
+    incomingCallData = partnerPseudo;
+    
+    document.getElementById('incomingCall').style.display = 'flex';
+    document.getElementById('callerName').textContent = partnerPseudo;
+    
+    // Sonnerie + vibration
+    playRingtone();
+    vibrate([500, 200, 500, 200, 500]);
+    showBrowserNotification('📞 Demande d\'écoute', partnerPseudo + ' a besoin de parler');
+    
+    // Timer
+    callSeconds = 0;
+    callTimerInterval = setInterval(() => {
+        callSeconds++;
+        const mins = Math.floor(callSeconds / 60).toString().padStart(2, '0');
+        const secs = (callSeconds % 60).toString().padStart(2, '0');
+        document.getElementById('callTimer').textContent = mins + ':' + secs;
+    }, 1000);
+}
+
+function acceptCall() {
+    clearInterval(callTimerInterval);
+    document.getElementById('incomingCall').style.display = 'none';
+    document.getElementById('waitingScreen').style.display = 'none';
+    document.getElementById('chatBox').style.display = 'flex';
+    
+    if (currentUser.type === 'volunteer') {
+        document.getElementById('btnEmergency').style.display = 'block';
+    }
+}
+
+function rejectCall() {
+    clearInterval(callTimerInterval);
+    document.getElementById('incomingCall').style.display = 'none';
+    incomingCallData = null;
+    socket.emit('joinQueue', currentUser);
+}
+
+// ============================================
+// ALERTE D'URGENCE
+// ============================================
+function triggerEmergency() {
+    const partnerName = document.getElementById('chatPartnerName').textContent;
+    
+    if (confirm('⚠️ Êtes-vous sûr de vouloir déclencher une alerte d\'urgence ? Les autorités seront contactées.')) {
+        document.getElementById('emergencyAlert').style.display = 'flex';
+        
+        // Afficher les numéros d'urgence
+        const numbersDiv = document.getElementById('emergencyNumbers');
+        numbersDiv.innerHTML = '<h3>Numéros à contacter :</h3>';
+        EMERGENCY_NUMBERS.forEach(num => {
+            numbersDiv.innerHTML += `
+                <a href="tel:${num.number}" class="emergency-call-btn">
+                    📞 ${num.name} : <strong>${num.number}</strong>
+                </a>
+            `;
+        });
+        
+        // Envoyer l'alerte au serveur
+        if (socket) {
+            socket.emit('emergencyAlert', {
+                roomId: currentUser.roomId,
+                volunteerName: currentUser.pseudo,
+                userInDanger: partnerName
+            });
+        }
+        
+        // Notification + vibration intense
+        showBrowserNotification('🚨 ALERTE URGENCE', 'Un utilisateur est en danger !');
+        vibrate([1000, 200, 1000, 200, 1000]);
+    }
+}
+
+function closeEmergency() {
+    document.getElementById('emergencyAlert').style.display = 'none';
+}
+
+// ============================================
+// ALERTE D'URGENCE (bouton dans le chat)
+// ============================================
+document.addEventListener('DOMContentLoaded', () => {
+    // Créer le bouton d'urgence flottant
+    const emergencyFloatBtn = document.createElement('button');
+    emergencyFloatBtn.id = 'emergencyFloatBtn';
+    emergencyFloatBtn.className = 'emergency-float-btn';
+    emergencyFloatBtn.innerHTML = '🚨';
+    emergencyFloatBtn.title = 'Alerte d\'urgence';
+    emergencyFloatBtn.onclick = triggerEmergency;
+    document.body.appendChild(emergencyFloatBtn);
 });
 
 // ============================================
 // NAVIGATION
 // ============================================
 function showSection(sectionId) {
-    document.querySelectorAll('.section').forEach(section => {
-        section.classList.remove('active');
-    });
-    
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     const section = document.getElementById(sectionId);
     if (section) {
         section.classList.add('active');
-        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        
+        section.scrollIntoView({ behavior: 'smooth' });
         if (sectionId === 'chat') {
             requestNotificationPermission();
             initializeChat();
@@ -226,74 +211,46 @@ function initializeChat() {
     }
     
     if (!socket) {
-        socket = io(SERVER_URL, {
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000
-        });
+        socket = io(SERVER_URL);
         
         socket.on('connect', () => {
-            console.log('✅ Connecté à ' + APP_NAME);
             socket.emit('joinQueue', currentUser);
-        });
-        
-        socket.on('queuePosition', (position) => {
-            const queueEl = document.getElementById('queuePosition');
-            if (queueEl) {
-                queueEl.textContent = position === 0 ? 'Vous êtes le prochain !' : position;
-            }
         });
         
         socket.on('matchFound', (data) => {
             currentUser.roomId = data.roomId;
-            startChat(data.partnerPseudo);
             
-            // 🔔 NOTIFICATIONS POUR LE BÉNÉVOLE
             if (currentUser.type === 'volunteer') {
-                playNotificationSound();
-                showBrowserNotification(data.partnerPseudo);
-                showInAppNotification(data.partnerPseudo + ' a besoin de parler !');
+                showIncomingCall(data.partnerPseudo);
+            } else {
+                document.getElementById('waitingScreen').style.display = 'none';
+                document.getElementById('chatBox').style.display = 'flex';
+                document.getElementById('chatPartnerName').textContent = data.partnerPseudo;
             }
         });
         
         socket.on('message', (message) => {
             displayMessage(message, 'received');
-            playMessageSound();
         });
         
         socket.on('partnerDisconnected', () => {
-            displaySystemMessage('Votre interlocuteur s\'est déconnecté. Recherche d\'un nouveau bénévole...');
-            resetChat();
+            displaySystemMessage('Déconnecté. Recherche...');
+            document.getElementById('chatBox').style.display = 'none';
+            document.getElementById('waitingScreen').style.display = 'block';
             socket.emit('joinQueue', currentUser);
         });
         
         socket.on('onlineCount', (count) => {
-            const countEl = document.getElementById('onlineCount');
-            if (countEl) countEl.textContent = count;
+            document.getElementById('onlineCount').textContent = count;
         });
         
-        socket.on('connect_error', () => {
-            displaySystemMessage('⚠️ Reconnexion en cours...');
+        socket.on('emergencyAlertReceived', (data) => {
+            alert('🚨 ALERTE : ' + data.volunteerName + ' signale une urgence !');
         });
     } else if (socket.disconnected) {
         socket.connect();
         socket.emit('joinQueue', currentUser);
     }
-}
-
-function startChat(partnerPseudo) {
-    document.getElementById('waitingScreen').style.display = 'none';
-    document.getElementById('chatBox').style.display = 'flex';
-    document.getElementById('messages').innerHTML = '';
-    
-    displaySystemMessage('✅ Connecté avec ' + partnerPseudo + '. Parlez librement et en toute confidentialité.');
-    displaySystemMessage('💡 Rappel : cet espace est bienveillant et sans jugement.');
-}
-
-function resetChat() {
-    document.getElementById('chatBox').style.display = 'none';
-    document.getElementById('waitingScreen').style.display = 'block';
-    document.getElementById('messages').innerHTML = '';
 }
 
 function sendMessage() {
@@ -304,8 +261,7 @@ function sendMessage() {
         socket.emit('sendMessage', {
             text: message,
             roomId: currentUser.roomId,
-            sender: currentUser.pseudo,
-            timestamp: new Date().toISOString()
+            sender: currentUser.pseudo
         });
         displayMessage({ text: message, sender: 'Vous' }, 'sent');
         input.value = '';
@@ -321,37 +277,32 @@ function handleKeyPress(event) {
 }
 
 function displayMessage(message, type) {
-    const messagesDiv = document.getElementById('messages');
-    if (!messagesDiv) return;
+    const div = document.getElementById('messages');
+    if (!div) return;
     
-    const messageElement = document.createElement('div');
-    messageElement.className = 'message ' + type;
+    const el = document.createElement('div');
+    el.className = 'message ' + type;
     
     if (type === 'system') {
-        messageElement.innerHTML = '<small>' + message + '</small>';
+        el.innerHTML = '<small>' + message + '</small>';
     } else {
-        const sender = message.sender || 'Anonyme';
-        const time = message.timestamp 
-            ? new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) 
-            : '';
-        messageElement.innerHTML = `
-            <small>${sender} ${time ? '· ' + time : ''}</small>
-            <p>${escapeHtml(message.text || message)}</p>
-        `;
+        el.innerHTML = '<small>' + (message.sender || 'Anonyme') + '</small><p>' + (message.text || message) + '</p>';
     }
     
-    messagesDiv.appendChild(messageElement);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    div.appendChild(el);
+    div.scrollTop = div.scrollHeight;
 }
 
 function displaySystemMessage(text) {
     displayMessage(text, 'system');
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+function cancelSearch() {
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+    showSection('home');
 }
 
 // ============================================
@@ -362,80 +313,33 @@ function registerVolunteer(event) {
     
     const pseudo = document.getElementById('pseudo').value.trim();
     const email = document.getElementById('email').value.trim();
-    const availability = document.getElementById('availability').value;
-    const motivation = document.getElementById('motivation').value.trim();
     
     if (!pseudo || !email) {
         alert('Veuillez remplir tous les champs obligatoires.');
         return false;
     }
     
-    const volunteerData = { pseudo, email, availability, motivation, type: 'volunteer' };
+    currentUser = {
+        pseudo: pseudo,
+        email: email,
+        type: 'volunteer'
+    };
     
-    fetch(SERVER_URL + '/api/register-volunteer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(volunteerData)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            currentUser = volunteerData;
-            alert('🎉 Merci ' + pseudo + ' ! Bienvenue sur ' + APP_NAME + '.');
-            requestNotificationPermission();
-            showSection('chat');
-        }
-    })
-    .catch(() => {
-        currentUser = volunteerData;
-        alert('✅ Bienvenue sur ' + APP_NAME + ', ' + pseudo + ' !');
-        showSection('chat');
-    });
+    alert('🎉 Bienvenue ' + pseudo + ' ! Vous êtes maintenant bénévole.');
+    requestNotificationPermission();
+    showSection('chat');
     
     return false;
-}
-
-// ============================================
-// PARTAGE SUR RÉSEAUX SOCIAUX
-// ============================================
-function shareOnFacebook() {
-    window.open('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(window.location.href));
-}
-
-function shareOnTwitter() {
-    const text = "Découvrez Talk2Me, une application gratuite d'écoute anonyme 💚";
-    window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(window.location.href));
-}
-
-function shareOnWhatsApp() {
-    const text = "Talk2Me - Application d'écoute anonyme et gratuite 💚 " + window.location.href;
-    window.open('https://wa.me/?text=' + encodeURIComponent(text));
 }
 
 // ============================================
 // INITIALISATION
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 ' + APP_NAME + ' est prêt !');
-    document.title = APP_NAME + ' - Parlez, nous écoutons';
     showSection('home');
-    
-    const container = document.querySelector('.container');
-    if (container) {
-        container.style.opacity = '0';
-        setTimeout(() => {
-            container.style.transition = 'opacity 0.6s ease';
-            container.style.opacity = '1';
-        }, 100);
-    }
+    document.title = APP_NAME + ' - Écoute Anonyme';
 });
 
 window.addEventListener('beforeunload', () => {
-    if (socket && socket.connected) {
-        socket.disconnect();
-    }
-});
-
-window.addEventListener('error', (event) => {
-    console.error('Erreur:', event.error);
+    if (socket?.connected) socket.disconnect();
 });
