@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Talk2Me - Parlez, nous écoutons</title>
+    <title>Talk2Me - Écoute Anonyme</title>
     <link rel="stylesheet" href="css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json">
@@ -13,24 +13,43 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Talk2Me">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
     
     <!-- SEO -->
-    <meta name="description" content="Talk2Me - Application d'écoute anonyme et gratuite pour les personnes en dépression. Des bénévoles sont là pour vous écouter 24h/24.">
-    <meta name="keywords" content="dépression, aide psychologique, écoute anonyme, soutien moral, santé mentale, talk2me">
-    
-    <!-- Open Graph -->
-    <meta property="og:title" content="Talk2Me - Parlez librement, nous écoutons">
-    <meta property="og:description" content="Application gratuite d'écoute anonyme pour les personnes en dépression">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://talk2me.app">
-    
-    <!-- Twitter -->
-    <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" content="Talk2Me - Écoute Anonyme">
-    <meta name="twitter:description" content="Parlez librement à des bénévoles, 100% anonyme et gratuit">
+    <meta name="description" content="Talk2Me - Application d'écoute anonyme et gratuite. Comme Be My Eyes pour la santé mentale.">
 </head>
 <body>
+    <!-- ÉCRAN D'APPEL POUR LE BÉNÉVOLE -->
+    <div id="incomingCall" class="incoming-call-overlay" style="display: none;">
+        <div class="incoming-call-card">
+            <div class="call-animation">
+                <div class="call-pulse"></div>
+                <div class="call-icon">📞</div>
+            </div>
+            <h2 class="call-title">Demande d'écoute</h2>
+            <p class="call-subtitle"><span id="callerName">Quelqu'un</span> a besoin de parler</p>
+            <div class="call-timer" id="callTimer">00:00</div>
+            <div class="call-buttons">
+                <button class="btn-accept" onclick="acceptCall()">
+                    🟢 Répondre
+                </button>
+                <button class="btn-reject" onclick="rejectCall()">
+                    🔴 Refuser
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ÉCRAN D'ALERTE URGENCE -->
+    <div id="emergencyAlert" class="emergency-overlay" style="display: none;">
+        <div class="emergency-card">
+            <div class="emergency-icon">🚨</div>
+            <h2>Alerte d'urgence déclenchée</h2>
+            <p>Les secours vont être contactés</p>
+            <div class="emergency-numbers" id="emergencyNumbers"></div>
+            <button class="btn-close-emergency" onclick="closeEmergency()">Fermer</button>
+        </div>
+    </div>
+
     <div class="container">
         <!-- En-tête -->
         <header>
@@ -39,10 +58,10 @@
                 <p class="tagline">Parlez librement, nous sommes là pour vous écouter</p>
             </div>
             <nav id="mainNav">
-                <button onclick="showSection('home')">Accueil</button>
-                <button onclick="showSection('register')">Devenir bénévole</button>
-                <button onclick="showSection('chat')">Parler maintenant</button>
-                <button onclick="showSection('resources')">Ressources</button>
+                <button onclick="showSection('home')">🏠 Accueil</button>
+                <button onclick="showSection('register')">👂 Devenir bénévole</button>
+                <button onclick="showSection('chat')">💬 Parler maintenant</button>
+                <button onclick="showSection('resources')">📞 Urgences</button>
             </nav>
         </header>
 
@@ -53,10 +72,10 @@
                 <p>Un espace sécurisé pour partager ce que vous ressentez, sans jugement.</p>
                 <div class="cta-buttons">
                     <button class="btn-primary" onclick="showSection('chat')">
-                        Je veux parler
+                        🆘 Je veux parler
                     </button>
                     <button class="btn-secondary" onclick="showSection('register')">
-                        Je veux aider
+                        💚 Je veux aider
                     </button>
                 </div>
             </div>
@@ -77,13 +96,18 @@
                     <h3>Écoute active</h3>
                     <p>Des bénévoles formés pour vous écouter</p>
                 </div>
+                <div class="feature-card">
+                    <span class="icon">🚨</span>
+                    <h3>Alerte d'urgence</h3>
+                    <p>Protection en cas de danger immédiat</p>
+                </div>
             </div>
         </section>
 
         <!-- Section Inscription Bénévole -->
         <section id="register" class="section">
             <h2>Devenir Bénévole Écoutant</h2>
-            <p class="section-intro">Rejoignez la communauté Talk2Me et offrez une oreille attentive à ceux qui en ont besoin.</p>
+            <p class="section-intro">Rejoignez la communauté Talk2Me et offrez une oreille attentive.</p>
             <form id="volunteerForm" onsubmit="registerVolunteer(event)">
                 <div class="form-group">
                     <label for="pseudo">Pseudo :</label>
@@ -94,12 +118,17 @@
                     <input type="email" id="email" required placeholder="votre@email.com">
                 </div>
                 <div class="form-group">
+                    <label for="phone">Téléphone (optionnel) :</label>
+                    <input type="tel" id="phone" placeholder="+225 XX XX XX XX">
+                </div>
+                <div class="form-group">
                     <label for="availability">Disponibilité :</label>
                     <select id="availability">
                         <option value="morning">Matin (8h-12h)</option>
                         <option value="afternoon">Après-midi (12h-18h)</option>
                         <option value="evening">Soir (18h-22h)</option>
                         <option value="night">Nuit (22h-8h)</option>
+                        <option value="always">Toujours disponible</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -127,13 +156,23 @@
                 </div>
                 
                 <div class="waiting-screen" id="waitingScreen">
-                    <div class="loader"></div>
+                    <div class="loader-ring"></div>
                     <p>Recherche d'un bénévole disponible...</p>
                     <p class="queue-info">Position dans la file : <span id="queuePosition">-</span></p>
+                    <button class="btn-cancel" onclick="cancelSearch()" style="display:none;">Annuler la recherche</button>
                 </div>
 
                 <div class="chat-box" id="chatBox" style="display: none;">
+                    <div class="chat-status-bar" id="chatStatusBar">
+                        <span class="connected-dot"></span>
+                        <span id="chatPartnerName">Connecté</span>
+                    </div>
                     <div class="messages" id="messages"></div>
+                    <div class="emergency-btn-container">
+                        <button class="btn-emergency" id="btnEmergency" onclick="triggerEmergency()" title="Alerter les secours">
+                            🚨 Alerter les secours
+                        </button>
+                    </div>
                     <div class="chat-input">
                         <textarea 
                             id="messageInput" 
@@ -146,43 +185,70 @@
                 </div>
 
                 <div class="crisis-warning">
-                    <p>⚠️ En cas d'urgence, contactez le <strong>3114</strong> (numéro national de prévention du suicide)</p>
+                    <p>⚠️ En cas d'urgence, contactez le <strong>143</strong> (Police Secours Côte d'Ivoire)</p>
                 </div>
             </div>
         </section>
 
-        <!-- Section Ressources -->
+        <!-- Section Ressources / Urgences -->
         <section id="resources" class="section">
-            <h2>Ressources d'aide</h2>
-            <p class="section-intro">Si vous avez besoin d'une aide immédiate, voici des ressources disponibles 24h/24.</p>
+            <h2>📞 Numéros d'Urgence - Côte d'Ivoire</h2>
+            
+            <div class="emergency-hero">
+                <div class="emergency-hero-icon">🇨🇮</div>
+                <h3>Numéros gratuits 24h/24</h3>
+            </div>
+            
             <div class="resources-grid">
-                <div class="resource-card">
-                    <h3>📞 SOS Amitié</h3>
-                    <p>09 72 39 40 50</p>
-                    <p>Écoute 24h/24, 7j/7</p>
+                <div class="resource-card emergency">
+                    <h3>🚔 Police Secours</h3>
+                    <a href="tel:170" class="emergency-number">170</a>
+                    <p>Police Nationale</p>
+                </div>
+                <div class="resource-card emergency">
+                    <h3>🚒 Pompiers</h3>
+                    <a href="tel:180" class="emergency-number">180</a>
+                    <p>Sapeurs-Pompiers</p>
+                </div>
+                <div class="resource-card emergency">
+                    <h3>🚑 SAMU</h3>
+                    <a href="tel:144" class="emergency-number">144</a>
+                    <p>Urgences médicales</p>
+                </div>
+                <div class="resource-card emergency">
+                    <h3>🛡️ Protection Enfance</h3>
+                    <a href="tel:116" class="emergency-number">116</a>
+                    <p>Enfants en danger</p>
                 </div>
                 <div class="resource-card">
-                    <h3>📞 Suicide Écoute</h3>
-                    <p>01 45 39 40 00</p>
-                    <p>24h/24, 7j/7</p>
+                    <h3>🏥 CHU Treichville</h3>
+                    <a href="tel:+2252721254000" class="emergency-number">21 25 40 00</a>
+                    <p>Urgences psychiatriques</p>
                 </div>
                 <div class="resource-card">
-                    <h3>📞 3114</h3>
-                    <p>Numéro national de prévention du suicide</p>
-                    <p>Gratuit, 24h/24, 7j/7</p>
+                    <h3>🏥 CHU Cocody</h3>
+                    <a href="tel:+2252722442300" class="emergency-number">22 44 23 00</a>
+                    <p>Service psychiatrie</p>
                 </div>
                 <div class="resource-card">
-                    <h3>💻 Psycom</h3>
-                    <p><a href="https://www.psycom.org" target="_blank">www.psycom.org</a></p>
-                    <p>Information en santé mentale</p>
+                    <h3>🏥 CHU Yopougon</h3>
+                    <a href="tel:+2252723560000" class="emergency-number">23 56 00 00</a>
+                    <p>Urgences 24h/24</p>
+                </div>
+                <div class="resource-card">
+                    <h3>🧠 Institut National Santé Mentale</h3>
+                    <a href="tel:+2252722442300" class="emergency-number">22 44 23 00</a>
+                    <p>Bingerville</p>
+                </div>
+                <div class="resource-card">
+                    <h3>📞 SOS Détresse</h3>
+                    <a href="tel:143" class="emergency-number">143</a>
+                    <p>Numéro d'urgence unique</p>
                 </div>
             </div>
             
-            <div class="about-talk2me">
-                <h3>À propos de Talk2Me</h3>
-                <p>Talk2Me est une plateforme 100% gratuite et anonyme qui met en relation des personnes en souffrance psychologique avec des bénévoles formés à l'écoute active.</p>
-                <p>Notre mission : briser l'isolement et offrir un espace de parole bienveillant à tous.</p>
-                <p class="domain">🌐 talk2me.app</p>
+            <div class="emergency-info">
+                <p>🚨 <strong>En cas de danger immédiat</strong>, le bénévole peut déclencher une alerte pour contacter les secours.</p>
             </div>
         </section>
     </div>
